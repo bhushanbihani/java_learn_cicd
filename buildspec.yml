@@ -3,24 +3,31 @@ version: 0.2
 phases:
   install:
     runtime-versions:
-      java: corretto17 # AWS Corretto Java 17 is standard for modern Spring Boot
+      # 1. Set the primary CodeBuild environment to Java 8
+      java: corretto8 
   
   pre_build:
     commands:
       - echo "Navigating to the Java project directory"
-      # IMPORTANT: Update this path if your pom.xml is located somewhere else
       - cd spring-boot-hello-world-main/spring-boot-hello-world-main
       
   build:
     commands:
-      - echo "Building the Java Spring Boot application with Maven"
-      - mvn clean package -DskipTests # Compiles the code and creates the .jar file
+      - echo "Building the application with Java 8..."
+      - mvn clean package -DskipTests 
 
-      - echo "Running SonarQube analysis via Maven plugin"
-      # Maven automatically compiles the code and sends it to SonarCloud
-      - mvn sonar:sonar -Dsonar.projectKey=${SONAR_PROJECT_KEY} -Dsonar.host.url=https://sonarcloud.io -Dsonar.token=${SONAR_TOKEN}
+      - echo "Setting up a temporary Java 17 environment for SonarCloud..."
+      # 2. Sonar strictly requires Java 17. This safely downloads it without breaking your Java 8 setup.
+      - wget -q https://corretto.aws/downloads/latest/amazon-corretto-17-x64-linux-jdk.tar.gz
+      - tar -xzf amazon-corretto-17-x64-linux-jdk.tar.gz
+      - export JAVA_HOME=$(pwd)/$(ls -d amazon-corretto-17* | head -n 1)
+      - export PATH=$JAVA_HOME/bin:$PATH
+      - java -version # Prints the active Java version to the logs to prove the switch worked
 
-      - echo "Getting Quality Gate Status"
+      - echo "Running SonarQube analysis via Maven plugin..."
+      - mvn sonar:sonar -Dsonar.projectKey=${SONAR_PROJECT_KEY} -Dsonar.organization=${SONAR_ORGANIZATION} -Dsonar.host.url=https://sonarcloud.io -Dsonar.token=${SONAR_TOKEN}
+
+      - echo "Getting Quality Gate Status..."
       - |
         QUALITY_STATUS=$(curl -s \
         -u ${SONAR_TOKEN}: \
@@ -54,8 +61,7 @@ phases:
         }"
 
 artifacts:
-  # Base directory needs to match where we cd'd into during pre_build
   base-directory: 'spring-boot-hello-world-main/spring-boot-hello-world-main'
   files:
-    - target/*.jar # Captures the compiled Spring Boot executable jar
+    - target/*.jar 
   discard-paths: yes
