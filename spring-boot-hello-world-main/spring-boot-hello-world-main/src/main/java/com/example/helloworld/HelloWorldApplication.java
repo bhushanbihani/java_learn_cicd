@@ -7,6 +7,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 public class HelloWorldApplication {
 
     public static void main(String[] args) {
+        String password="Bhushan@123";
         SpringApplication.run(HelloWorldApplication.class, args);
     }
 
