@@ -1,0 +1,61 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      java: corretto17 # AWS Corretto Java 17 is standard for modern Spring Boot
+  
+  pre_build:
+    commands:
+      - echo "Navigating to the Java project directory"
+      # IMPORTANT: Update this path if your pom.xml is located somewhere else
+      - cd spring-boot-hello-world-main/spring-boot-hello-world-main
+      
+  build:
+    commands:
+      - echo "Building the Java Spring Boot application with Maven"
+      - mvn clean package -DskipTests # Compiles the code and creates the .jar file
+
+      - echo "Running SonarQube analysis via Maven plugin"
+      # Maven automatically compiles the code and sends it to SonarCloud
+      - mvn sonar:sonar -Dsonar.projectKey=${SONAR_PROJECT_KEY} -Dsonar.host.url=https://sonarcloud.io -Dsonar.token=${SONAR_TOKEN}
+
+      - echo "Getting Quality Gate Status"
+      - |
+        QUALITY_STATUS=$(curl -s \
+        -u ${SONAR_TOKEN}: \
+        "https://sonarcloud.io/api/qualitygates/project_status?projectKey=${SONAR_PROJECT_KEY}" \
+        | jq -r '.projectStatus.status')
+
+        echo "Quality Gate=${QUALITY_STATUS}"
+
+        SONAR_METRICS=$(curl -s \
+        -u ${SONAR_TOKEN}: \
+        "https://sonarcloud.io/api/measures/component?component=${SONAR_PROJECT_KEY}&metricKeys=bugs,vulnerabilities,code_smells,coverage")
+
+        BUGS=$(echo $SONAR_METRICS | jq -r '.component.measures[] | select(.metric=="bugs") | .value')
+        VULNERABILITIES=$(echo $SONAR_METRICS | jq -r '.component.measures[] | select(.metric=="vulnerabilities") | .value')
+        CODE_SMELLS=$(echo $SONAR_METRICS | jq -r '.component.measures[] | select(.metric=="code_smells") | .value')
+        COVERAGE=$(echo $SONAR_METRICS | jq -r '.component.measures[] | select(.metric=="coverage") | .value')
+
+        aws ses send-email \
+        --region ap-southeast-1 \
+        --from "$SES_FROM" \
+        --destination "ToAddresses=$SES_TO" \
+        --message "{
+          \"Subject\": {
+            \"Data\": \"Java Spring Boot: SonarCloud Analysis Report\"
+          },
+          \"Body\": {
+            \"Text\": {
+              \"Data\": \"Project: ${SONAR_PROJECT_KEY}\nQuality Gate: ${QUALITY_STATUS}\nBugs: ${BUGS}\nVulnerabilities: ${VULNERABILITIES}\nCode Smells: ${CODE_SMELLS}\nCoverage: ${COVERAGE}%\nDashboard: https://sonarcloud.io/project/overview?id=${SONAR_PROJECT_KEY}\"
+            }
+          }
+        }"
+
+artifacts:
+  # Base directory needs to match where we cd'd into during pre_build
+  base-directory: 'spring-boot-hello-world-main/spring-boot-hello-world-main'
+  files:
+    - target/*.jar # Captures the compiled Spring Boot executable jar
+  discard-paths: yes
